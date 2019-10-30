@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import logist.plan.Plan;
 import logist.simulation.Vehicle;
@@ -56,15 +57,79 @@ public class Solution {
 	public List<Solution> getNeighbours() {
 		List<Solution> neighbours = new ArrayList<Solution>();
 		
-		neighbours.addAll(this.getPermutatedActionNeighbours());
-		neighbours.addAll(this.getPermutatedVehicleNeighbours());
+		Random random = new Random();
+		List<Vehicle> nonEmptyVehicles = new ArrayList<Vehicle>();
+		
+		for(Vehicle v : tasksPerVehicle.keySet()) {
+			if(!tasksPerVehicle.get(v).tasks.isEmpty()) {
+				nonEmptyVehicles.add(v);
+			}
+		}
+		
+		int id = random.nextInt(nonEmptyVehicles.size());
+		Vehicle vehicle = nonEmptyVehicles.get(id);
+		
+		neighbours.addAll(this.getPermutatedActionNeighbours(vehicle));
+		neighbours.addAll(this.getPermutatedVehicleNeighbours(vehicle));
 		
 		return neighbours;
 	}
 	
 	// Get all possible neighbours which are the result of permuting two actions of
 	// one vehicle.
-	private List<Solution> getPermutatedActionNeighbours() {
+	private List<Solution> getPermutatedActionNeighbours(Vehicle vehicle) {
+		List<Solution> neighbours = new ArrayList<Solution>();
+		Solution neighbour;
+		
+		TaskList taskList = tasksPerVehicle.get(vehicle);
+		
+		List<TaskList> permutatedTaskLists = taskList.getAllPermutations(vehicle.capacity());
+		for(TaskList pTaskList : permutatedTaskLists) {
+			neighbour = new Solution(this);
+			neighbour.tasksPerVehicle.put(vehicle, pTaskList);
+			
+			neighbours.add(neighbour);
+		}
+		
+		return neighbours;
+	}
+	
+	// Get all neighbours which are the result of changing the vehicle attributed to
+	// one task.
+	private List<Solution> getPermutatedVehicleNeighbours(Vehicle v1) {
+		List<Solution> neighbours = new ArrayList<Solution>();
+		Solution neighbour;
+		
+		TaskList taskList = tasksPerVehicle.get(v1);
+		
+		for(int i = 0; i < taskList.tasks.size(); i++) {
+			for(Vehicle v2 : tasksPerVehicle.keySet()) {
+				if(v1 == v2)
+					continue;
+				
+				neighbour = new Solution(this);
+				
+				if(neighbour.swapTaskVehicle(v1, v2, i))
+					neighbours.add(neighbour);
+			}
+		}
+		
+		return neighbours;
+	}
+	
+	// Get all solutions neighbour of this one.
+	public List<Solution> getAllNeighbours() {
+		List<Solution> neighbours = new ArrayList<Solution>();
+		
+		neighbours.addAll(this.getAllPermutatedActionNeighbours());
+		neighbours.addAll(this.getAllPermutatedVehicleNeighbours());
+		
+		return neighbours;
+	}
+	
+	// Get all possible neighbours which are the result of permuting two actions of
+	// one vehicle.
+	private List<Solution> getAllPermutatedActionNeighbours() {
 		List<Solution> neighbours = new ArrayList<Solution>();
 		Solution neighbour;
 		
@@ -86,7 +151,7 @@ public class Solution {
 	
 	// Get all neighbours which are the result of changing the vehicle attributed to
 	// one task.
-	private List<Solution> getPermutatedVehicleNeighbours() {
+	private List<Solution> getAllPermutatedVehicleNeighbours() {
 		List<Solution> neighbours = new ArrayList<Solution>();
 		Solution neighbour;
 		
@@ -118,7 +183,8 @@ public class Solution {
 			Vehicle v = entry.getKey();
 			TaskList taskList = entry.getValue();
 			
-			cost = Math.max(cost, v.costPerKm()*taskList.getDistance(v.getCurrentCity()));
+//			cost = Math.max(cost, v.costPerKm()*taskList.getDistance(v.getCurrentCity()));
+			cost += v.costPerKm()*taskList.getDistance(v.getCurrentCity());
 		}
 		
 		return cost;
@@ -139,7 +205,22 @@ public class Solution {
 		return plans;
 	}
 	
-	
+	public String toString() {
+		String msg = "Total cost : " + this.getCost() + "\n";
+		
+		for(Map.Entry<Vehicle, TaskList> entry : tasksPerVehicle.entrySet()) {
+			Vehicle v = entry.getKey();
+			TaskList taskList = entry.getValue();
+			msg += "Vehicle " + v.id() + " : ";
+			for(TaskAction a : taskList.actions) {
+				msg += a.isPickUp ? "Pickup " : "Deliver ";
+				msg += a.task.task.id + ", ";
+			}
+			msg += "\n";
+		}
+		
+		return msg;
+	}
 	
 	
 	

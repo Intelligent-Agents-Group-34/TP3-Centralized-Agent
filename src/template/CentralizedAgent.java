@@ -3,6 +3,7 @@ package template;
 import java.io.File;
 //the list of imports
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -69,7 +70,7 @@ public class CentralizedAgent implements CentralizedBehavior {
         
         Solution initSol = this.getInitialSolution(vehicles, tasks);
         
-        Map<Vehicle, Plan> planMap = this.computeSLS(initSol);
+        Map<Vehicle, Plan> planMap = this.computeSLS(initSol, true);
         
         for(Vehicle v : vehicles) {
         	Plan plan = planMap.get(v);
@@ -90,51 +91,114 @@ public class CentralizedAgent implements CentralizedBehavior {
     private Solution getInitialSolution(List<Vehicle> vehicles, TaskSet tasks) {
     	Solution initSol = new Solution();
     	
-    	boolean first = true;
+//    	boolean first = true;
+//    	for(Vehicle v : vehicles) {
+//    		List<Task> vehicleTasks = new ArrayList<Task>();
+//    		
+//    		if(first) {
+//    			vehicleTasks.addAll(tasks);
+//    			first = false;
+//    		}
+//    		
+//    		initSol.putVehicle(v, vehicleTasks);
+//    	}
+    	
+    	Random random = new Random();
+    	Map<Vehicle, List<Task>> tasksPerVehicle = new HashMap<Vehicle, List<Task>>();
+    	
     	for(Vehicle v : vehicles) {
-    		List<Task> vehicleTasks = new ArrayList<Task>();
-    		
-    		if(first) {
-    			vehicleTasks.addAll(tasks);
-    			first = false;
+    		tasksPerVehicle.put(v, new ArrayList<Task>());
+    	}
+    	
+    	for(Task t : tasks) {
+    		List<Vehicle> admissibleVehicles = new ArrayList<Vehicle>();
+    		for(Vehicle v : vehicles) {
+    			if(v.capacity() >= t.weight)
+    				admissibleVehicles.add(v);
     		}
     		
-    		initSol.putVehicle(v, vehicleTasks);
+    		if(admissibleVehicles.isEmpty())
+    			return null;
+    		
+    		int i = random.nextInt(admissibleVehicles.size());
+    		tasksPerVehicle.get(admissibleVehicles.get(i)).add(t);
+    	}
+    	
+    	for(Map.Entry<Vehicle, List<Task>> entry : tasksPerVehicle.entrySet()) {
+    		initSol.putVehicle(entry.getKey(), entry.getValue());
     	}
     	
     	return initSol;
     }
     
-    private Map<Vehicle, Plan> computeSLS(Solution initSolution) {
-    	Solution A = initSolution, best = initSolution;
-    	double randomFactor = 0.1;
-    	int maxIter = 100000, maxStagnationIter = 10000;
+    private Map<Vehicle, Plan> computeSLS(Solution initSolution, boolean showPlot) {
+    	Solution A = initSolution, best = initSolution, localBest = initSolution;
+    	double randomFactor = 0.;
+    	int maxIter = 50000, maxStagnationIter = 10000, maxLocalStagnationIter = 20;
     	Random random = new Random();
-    	int iter = 0, stagnationIter = 0;
-    	JFrame frame = new JFrame();
-    	Plot plot = new Plot();
-    	frame.add(plot);
-    	frame.pack();
-    	frame.setVisible(true);
+    	int iter = 0, stagnationIter = 0, localStagnationIter = 0;
+    	int pertubationSteps = 1;
+
+    	JFrame frame;
+    	Plot plot = null;
+    	if(showPlot) {
+    		frame = new JFrame("SLS Algorithm, Cost over iterations");
+    		plot = new Plot();
+    		plot.setTitle("SLS Algorithm, Cost over iterations");
+    		plot.setXLabel("Iteration n°");
+    		plot.setYLabel("Cost");
+    		plot.addLegend(0, "Current");
+    		plot.addLegend(1, "Best");
+    		plot.setYLog(true);
+        	frame.add(plot);
+        	frame.pack();
+        	frame.setVisible(true);
+    	}
     	
     	while(iter < maxIter && stagnationIter < maxStagnationIter) {
-    		List<Solution> neighbours = A.getNeighbours();
+    		List<Solution> neighbours;
     		
-    		if(random.nextDouble() < randomFactor) {
-    			int randomID = random.nextInt(neighbours.size());
-    			A = neighbours.get(randomID);
+//    		if(random.nextDouble() < randomFactor) {
+//    			int randomID = random.nextInt(neighbours.size());
+//    			A = neighbours.get(randomID);
+//    		}
+//    		else
+    		if(localStagnationIter >= maxLocalStagnationIter) {
+    			for(int i = 0; i < pertubationSteps; i++) {
+    				neighbours = A.getNeighbours();
+	    			int randomID = random.nextInt(neighbours.size());
+	    			A = neighbours.get(randomID);
+    			}
+    			
+    			localStagnationIter = 0;
+    			localBest = A;
     		}
     		else {
     			double bestCost = Double.POSITIVE_INFINITY;
+    			List<Solution> bestSolutions = new ArrayList<Solution>();
+    			
+    			neighbours = A.getNeighbours();
     			
     			for(Solution s : neighbours) {
     				double cost = s.getCost();
     				
-    				if(cost < bestCost) {
-    					A = s;
+    				if(cost == bestCost) {
+    					bestSolutions.add(s);
+    				}
+    				else if(cost < bestCost) {
+    					bestSolutions.clear();
+    					bestSolutions.add(s);
     					bestCost = cost;
     				}
     			}
+    			
+    			int id = random.nextInt(bestSolutions.size());
+    			A = bestSolutions.get(id);
+    		}
+    		
+    		if(A.getCost() < localBest.getCost()) {
+    			localBest = A;
+    			localStagnationIter = 0;
     		}
     		
     		if(A.getCost() < best.getCost()) {
@@ -142,12 +206,18 @@ public class CentralizedAgent implements CentralizedBehavior {
     			stagnationIter = 0;
     		}
     		
-        	plot.addPoint(0, iter, A.getCost(), true);
-        	plot.addPoint(1, iter, best.getCost(), true);
-        	plot.fillPlot();
+    		if(showPlot) {
+	        	plot.addPoint(0, iter, A.getCost(), true);
+	        	plot.addPoint(1, iter, best.getCost(), true);
+	        	plot.fillPlot();
+    		}
     		
     		iter++;
     		stagnationIter++;
+    		localStagnationIter++;
+    		
+    		System.out.println("Current iter: " + iter + " local stagnation: " + localStagnationIter);
+            System.out.print(A.toString() + "\n\n\n");
     	}
     	
     	if(iter == maxIter) {
@@ -158,32 +228,7 @@ public class CentralizedAgent implements CentralizedBehavior {
     	}
     	
     	System.out.println("Final cost: " + best.getCost());
-    	
+
     	return best.getPlans();
-    }
-    
-    private Plan naivePlan(Vehicle vehicle, TaskSet tasks) {
-        City current = vehicle.getCurrentCity();
-        Plan plan = new Plan(current);
-
-        for (Task task : tasks) {
-            // move: current city => pickup location
-            for (City city : current.pathTo(task.pickupCity)) {
-                plan.appendMove(city);
-            }
-
-            plan.appendPickup(task);
-
-            // move: pickup location => delivery location
-            for (City city : task.path()) {
-                plan.appendMove(city);
-            }
-
-            plan.appendDelivery(task);
-
-            // set current city
-            current = task.deliveryCity;
-        }
-        return plan;
     }
 }
