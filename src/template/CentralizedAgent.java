@@ -25,11 +25,7 @@ import logist.topology.Topology.City;
 import ptolemy.plot.Plot;
 import ptolemy.plot.PlotFrame;
 import logist.plan.Action.Move;
-/**
- * A very simple auction agent that assigns all tasks to its first vehicle and
- * handles them sequentially.
- *
- */
+
 @SuppressWarnings("unused")
 public class CentralizedAgent implements CentralizedBehavior {
 
@@ -68,9 +64,12 @@ public class CentralizedAgent implements CentralizedBehavior {
         
         List<Plan> plans = new ArrayList<Plan>();
         
+        // Get an initial solution
         Solution initSol = this.getInitialSolution(vehicles, tasks);
         
-        Map<Vehicle, Plan> planMap = this.computeSLS(initSol, true);
+        // Compute a good plan with the SLS algorithm
+        Map<Vehicle, Plan> planMap = this.computeSLS(initSol, 0.5, 20000, 2000, 100, 2,
+        		true);
         
         for(Vehicle v : vehicles) {
         	Plan plan = planMap.get(v);
@@ -88,42 +87,40 @@ public class CentralizedAgent implements CentralizedBehavior {
         return plans;
     }
 
+    // Return a solution with the tasks randomly spread between the vehicles. Return
+    // null if not possible.
     private Solution getInitialSolution(List<Vehicle> vehicles, TaskSet tasks) {
     	Solution initSol = new Solution();
-    	
-//    	boolean first = true;
-//    	for(Vehicle v : vehicles) {
-//    		List<Task> vehicleTasks = new ArrayList<Task>();
-//    		
-//    		if(first) {
-//    			vehicleTasks.addAll(tasks);
-//    			first = false;
-//    		}
-//    		
-//    		initSol.putVehicle(v, vehicleTasks);
-//    	}
     	
     	Random random = new Random();
     	Map<Vehicle, List<Task>> tasksPerVehicle = new HashMap<Vehicle, List<Task>>();
     	
+    	// Create an empty list of Task for each vehicle
     	for(Vehicle v : vehicles) {
     		tasksPerVehicle.put(v, new ArrayList<Task>());
     	}
     	
+    	// For each task
     	for(Task t : tasks) {
     		List<Vehicle> admissibleVehicles = new ArrayList<Vehicle>();
+    		
+    		// Compute the list of admissible vehicle for this task, i.e. the ones with
+    		// a capacity big enough
     		for(Vehicle v : vehicles) {
     			if(v.capacity() >= t.weight)
     				admissibleVehicles.add(v);
     		}
     		
+    		// If the list is empty, the problem in unsolvable
     		if(admissibleVehicles.isEmpty())
     			return null;
     		
+    		// Add the task to a random admissible vehicle
     		int i = random.nextInt(admissibleVehicles.size());
     		tasksPerVehicle.get(admissibleVehicles.get(i)).add(t);
     	}
     	
+    	// Create the solution with the computed task distribution
     	for(Map.Entry<Vehicle, List<Task>> entry : tasksPerVehicle.entrySet()) {
     		initSol.putVehicle(entry.getKey(), entry.getValue());
     	}
@@ -131,14 +128,25 @@ public class CentralizedAgent implements CentralizedBehavior {
     	return initSol;
     }
     
-    private Map<Vehicle, Plan> computeSLS(Solution initSolution, boolean showPlot) {
-    	Solution A = initSolution, best = initSolution, localBest = initSolution;
-    	double randomFactor = 0.;
-    	int maxIter = 50000, maxStagnationIter = 10000, maxLocalStagnationIter = 20;
+    // Compute the stochastic local search algorithm with the given initial solution and
+    // parameters.
+    // randomFactor: probability to keep the last solution if the new one is worse
+    // maxIter: overall maximum iterations allowed
+    // maxStagnationIter: number of iterations allowed without finding a new best solution
+    // maxLocalStagnationIter: number of iterations with no improvement of the local best
+    //		solution before applying a perturbation
+    // perturbationSteps: number of random steps performed for the perturbation
+    // showPlot: whether to show a live plot of the results or not
+    private Map<Vehicle, Plan> computeSLS(Solution initSolution, double randomFactor,
+    		int maxIter, int maxStagnationIter, int maxLocalStagnationIter,
+    		int pertubationSteps, boolean showPlot) {
+    	Solution A = initSolution, best = initSolution;
+    	double cost = initSolution.getCost();
+    	double overallBestCost = Double.POSITIVE_INFINITY, localBestCost = Double.POSITIVE_INFINITY;
     	Random random = new Random();
     	int iter = 0, stagnationIter = 0, localStagnationIter = 0;
-    	int pertubationSteps = 1;
 
+    	// Setup graph
     	JFrame frame;
     	Plot plot = null;
     	if(showPlot) {
@@ -155,15 +163,13 @@ public class CentralizedAgent implements CentralizedBehavior {
         	frame.setVisible(true);
     	}
     	
+    	// Search until we reached maxIter or didn't find a better solution for a while
     	while(iter < maxIter && stagnationIter < maxStagnationIter) {
     		List<Solution> neighbours;
     		
-//    		if(random.nextDouble() < randomFactor) {
-//    			int randomID = random.nextInt(neighbours.size());
-//    			A = neighbours.get(randomID);
-//    		}
-//    		else
+    		// If we are trapped in a local minima
     		if(localStagnationIter >= maxLocalStagnationIter) {
+    			// Perform some random steps
     			for(int i = 0; i < pertubationSteps; i++) {
     				neighbours = A.getNeighbours();
 	    			int randomID = random.nextInt(neighbours.size());
@@ -171,53 +177,69 @@ public class CentralizedAgent implements CentralizedBehavior {
     			}
     			
     			localStagnationIter = 0;
-    			localBest = A;
+    			cost = A.getCost();
+    			localBestCost = cost;
     		}
     		else {
     			double bestCost = Double.POSITIVE_INFINITY;
     			List<Solution> bestSolutions = new ArrayList<Solution>();
+        		double oldCost = cost;
     			
+        		// Get the neighbours of the current solution
     			neighbours = A.getNeighbours();
     			
+    			// Find the neighbour solutions with the lowest cost
     			for(Solution s : neighbours) {
-    				double cost = s.getCost();
+    				cost = s.getCost();
     				
     				if(cost == bestCost) {
     					bestSolutions.add(s);
     				}
-    				else if(cost < bestCost) {
+    				if(cost < bestCost) {
     					bestSolutions.clear();
     					bestSolutions.add(s);
     					bestCost = cost;
     				}
     			}
     			
-    			int id = random.nextInt(bestSolutions.size());
-    			A = bestSolutions.get(id);
+    			// If this cost is still higher than the current cost, keep the current
+    			// solution with a certain probability
+        		if(bestCost > oldCost && random.nextDouble() < randomFactor) {
+					cost = oldCost;
+				}
+				else {
+					// Otherwise choose one of the best neighbours at random
+					int id = random.nextInt(bestSolutions.size());
+	    			A = bestSolutions.get(id);
+					cost = bestCost;
+				}
     		}
     		
-    		if(A.getCost() < localBest.getCost()) {
-    			localBest = A;
+    		// If the new cost is better than the local best one, update the local best
+    		// one and reset the local stagnation counter
+    		if(cost < localBestCost) {
+    			localBestCost = cost;
     			localStagnationIter = 0;
     		}
     		
-    		if(A.getCost() < best.getCost()) {
+    		// If the new cost is better than the overall best one, update the overall
+    		// best one and reset the stagnation counter
+			if(cost < overallBestCost) {
     			best = A;
+    			overallBestCost = cost;
     			stagnationIter = 0;
     		}
     		
+			// Update the plot
     		if(showPlot) {
-	        	plot.addPoint(0, iter, A.getCost(), true);
-	        	plot.addPoint(1, iter, best.getCost(), true);
+	        	plot.addPoint(0, iter, cost, true);
+	        	plot.addPoint(1, iter, overallBestCost, true);
 	        	plot.fillPlot();
     		}
     		
     		iter++;
     		stagnationIter++;
     		localStagnationIter++;
-    		
-    		System.out.println("Current iter: " + iter + " local stagnation: " + localStagnationIter);
-            System.out.print(A.toString() + "\n\n\n");
     	}
     	
     	if(iter == maxIter) {
