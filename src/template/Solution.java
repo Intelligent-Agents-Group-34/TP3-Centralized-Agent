@@ -82,6 +82,17 @@ public class Solution {
 		int idx = random.nextInt(tasksPerVehicle.get(vehicle).tasks.size());
 		neighbours.addAll(this.getPermutatedActionNeighbours(vehicle, idx));
 		
+		// Choose another vehicle (possibly the same)
+		rnd = random.nextInt(numberOfTasks);
+		cummulative = 0;
+		for(Map.Entry<Vehicle, TaskList> entry: tasksPerVehicle.entrySet()) {
+			cummulative += entry.getValue().tasks.size();
+			if(rnd < cummulative) {
+				vehicle = entry.getKey();
+				break;
+			}
+		}
+		
 		// Get all neighbour solutions with one task being removed from its vehicle
 		// and put anywhere in other vehicles
 		idx = random.nextInt(tasksPerVehicle.get(vehicle).tasks.size());
